@@ -1,71 +1,108 @@
-import tkinter as tk
-import paho.mqtt.client as mqtt
+#include <WiFi.h>
+#include <ArduinoMqttClient.h>
+#include "esp_wpa2.h" //wpa2 library for connections to Enterprise networks
+#include <M5StickCPlus.h>
 
-# MQTT settings
-MQTT_BROKER = "info8000.ga"
-MQTT_PORT = 1883
-MQTT_USER = "giiuser"
-MQTT_PW = "giipassword"
-MQTT_CLIENT_ID = "m5stickcplus_lightbulb"
-T_CONTROL_STATUS = "tvs60497/light_control_status"
-T_CONTROL_COLOR = "tvs60497/light_control_color"
+#define EAP_ANONYMOUS_IDENTITY "" 
+#define EAP_IDENTITY "tvs60497@uga.edu" 
+#define EAP_PASSWORD "Bolt050902" //password for eduroam account
+#define WPA_PASSWORD "" //password for home wifi
+#define USE_EAP
+//SSID NAME
+#ifdef USE_EAP
+  const char* ssid = "eduroam"; // eduroam SSID
+#else 
+  const char* ssid = "shamrock"; // home SSID
+#endif
 
-def on_message(client_obj, userdata, message): #note, userdata is unused
-    print(f"Message received: {message.payload}")
+char buffer[100];
+int status;
+float accX, accY, accZ;
+int BTNA = 37;
 
-# create the MQTT client and connect to the broker
-client = mqtt.Client(MQTT_CLIENT_ID)
-client.username_pw_set(MQTT_USER, MQTT_PW)
-client.on_message = on_message
-client.connect(MQTT_BROKER, MQTT_PORT)
+const char* broker = "info8000.ga";
+const int port = 1883;
+const char* mqtt_user = "giiuser";
+const char* mqtt_pw = "giipassword";
+const char* t_status = "ugaelee2045sp23/tstpierre/BTcontrol";
+const char* t_control_status = "ugaelee2045sp23/tstpierre/BTcontrol_shot_fired";
+const char* t_control_color = "ugaelee2045sp23/tstpierre/BTcontrol_accelerometer";
 
-client.subscribe(T_CONTROL_STATUS)
-client.subscribe(T_CONTROL_COLOR)
-client.loop_start()
+WiFiClient espClient;
+MqttClient client(espClient);
 
-# function to handle the "On" and "Off" buttons
-def on_off(value):
-    # send the value to the M5StickC Plus via MQTT
-    client.publish(T_CONTROL_STATUS, bytearray([value]))
+void onMqttMessage(int messageSize) {
+  Serial.println("got a message");
+  Serial.println(client.messageTopic());
+  }
 
-# function to handle the color selection
-def select_color():
-    # get the values from the sliders
-    red = red_slider.get()
-    green = green_slider.get()
-    blue = blue_slider.get()
-    color_data = bytes([red, green, blue])
-    client.publish(T_CONTROL_COLOR, color_data)
-    color_box.config(bg="#{:02x}{:02x}{:02x}".format(red, green, blue))
+void setup() {
+  M5.begin();
+  M5.IMU.Init();
+  
+  WiFi.disconnect(true); // disconnect from wifi
+  WiFi.mode(WIFI_STA); //init wifi mode
+  #ifdef USE_EAP
+    esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_ANONYMOUS_IDENTITY, strlen(EAP_ANONYMOUS_IDENTITY));
+    esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY));
+    esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
+    esp_wifi_sta_wpa2_ent_enable();
+    WiFi.begin(ssid); //connect to wifi
+  #else
+    WiFi.begin(ssid,WPA_PASSWORD);
+  #endif
+  WiFi.setSleep(false);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Waiting for connection");
+  }
+  Serial.println("WiFi connected");  
 
-# create the main window
-root = tk.Tk()
+  client.onMessage(onMqttMessage);
+  client.setUsernamePassword(mqtt_user, mqtt_pw );
+  client.connect(broker, port);
+  Serial.println("broker connected");
+  M5.Lcd.print("connected");
 
-root.title("Smart Light")
+  client.subscribe(t_control_status);
+  client.subscribe(t_control_color);
 
-# create the "On" button
-on_button = tk.Button(root, text="On", command=lambda: on_off(1))
-on_button.pack()
+  // print ip
+  IPAddress ip = WiFi.localIP();
+  Serial.println(ip);
+  M5.Lcd.print(ip);
+}
 
-# create the "Off" button
-off_button = tk.Button(root, text="Off", command=lambda: on_off(0))
-off_button.pack()
+void sendStatus(){
+  client.beginMessage(t_status);
+  client.write(status);
+  client.write(accX);
+  client.write(accY);
+  client.write(accZ);
+  client.endMessage();
+}
+int waitingForRelease = 0;
+void loop(){
 
-# create the sliders for selecting the color
-red_slider = tk.Scale(root, from_=0, to=255, orient=tk.HORIZONTAL, label="Red", length=300)
-red_slider.pack()
-green_slider = tk.Scale(root, from_=0, to=255, orient=tk.HORIZONTAL, label="Green", length=300)
-green_slider.pack()
-blue_slider = tk.Scale(root, from_=0, to=255, orient=tk.HORIZONTAL, label="Blue", length=300)
-blue_slider.pack()
+  M5.update();
+  client.poll();
 
-# create a box to display the selected color
-color_box = tk.Label(root, width=20, height=5, bg="#000000")
-color_box.pack()
+  M5.IMU.getAccelData(&accX, &accY, &accZ);
+  M5.Lcd.setCursor(0, 45);
+  M5.Lcd.printf("X:%5.2f/nY:%5.2f/nZ:%5.2f ", accX, accY, accZ);  
 
-# create the "Select Color" button
-select_button = tk.Button(root, text="Select Color", command=select_color)
-select_button.pack()
+  static unsigned long last_time = 0;
+  if(millis()-last_time > 2000){
+    sendStatus();
+    last_time = millis();
+  }
 
-# start the main loop
-root.mainloop()
+  if(digitalRead(37)==LOW && !waitingForRelease){
+    status = !status;
+    sendStatus();
+    waitingForRelease = 1;
+  }
+  if(digitalRead(37)==HIGH){
+    waitingForRelease = 0;
+  }
+}
