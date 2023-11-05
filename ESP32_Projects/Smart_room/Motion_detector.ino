@@ -23,14 +23,19 @@ const long interval = 60000; // interval at which to turn off the LED (10 minute
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
 
-// Sends messages to relay
-const char motion_status_to_relay[] = "smart_room/motion_sensor/motion_status_to_relay";
+// Receives messages from motion sensor (led sign)
+const char motion_status_to_relay_led_sign[] = "smart_room/motion_sensor/motion_status_to_relay_led_sign";
+
+// Receives messages from motion sensor (main light)
+const char motion_status_to_relay_main_light[] = "smart_room/motion_sensor/motion_status_to_relay_main_light";
 
 const char motion_status[] = "smart_room/motion_sensor/motion_status";
 
 int IR_pin = 4;
-int button_led = 5;
-int m_status;
+int button1 = 5;
+int button2 = 21;
+bool button_state = false;
+bool motion_state = false;
 
 void startWifi() {
   WiFi.disconnect(true); // disconnect from wifi
@@ -57,8 +62,9 @@ void startMqtt() {
   mqttClient.onMessage(onMqttMessage);
   mqttClient.setUsernamePassword("giiuser","giipassword");
   mqttClient.connect(broker, port);
-   mqttClient.subscribe(motion_status);
-  mqttClient.subscribe(motion_status_to_relay);
+  mqttClient.subscribe(motion_status);
+  mqttClient.subscribe(motion_status_to_relay_main_light);
+  mqttClient.subscribe(motion_status_to_relay_led_sign);
 }
 
 void turnOn() {
@@ -71,52 +77,43 @@ void turnOff() {
 
 void mainLight(){
   int motion = digitalRead(IR_pin);
-  if (motion == HIGH) { // motion detected
+  int button1_pressed = digitalRead(button1);
+  if (motion == HIGH && button1_pressed == LOW) { // motion detected no button pressed
     Serial.println("Motion Detected...");
-    sendStatus(1);
-    currentMillis = millis(); // store the current time
-    if (currentMillis >= interval) {
-      break;
-    }
+    sendStatus_main_light(1);
+    delay(1000);
   }
-  else if (motion == LOW) {
-    Serial.println("No Motion...");
-    sendStatus(0);
-  }  
+  else if (motion == HIGH && button1_pressed == HIGH) { // motion detected, but button pressed so turn off
+    Serial.println("Button detected turn off");
+    sendStatus_main_light(0);
+    delay(5000);
+  } 
 }
 
-// Problem: Need to find a way to incorporate the button presses to interupt the delay of the motion sensor when on
-// void checkSensor() {
-// 	int motion = digitalRead(IR_pin);
-//   int button1_pressed = digitalRead(button1);
-//   bool button_state = false;
-// 	if (motion == LOW && !sensorTriggered && !button1_pressed) {
-// 		return;
-// 	} else if (motion == LOW && sensorTriggered && !button1_pressed) {
-// 		sensorTriggered = 0;
-// 		sendStatus(0);
-//     turnOff();
-// 	} else if (motion == LOW && button_state && button1_pressed) {
-// 		sensorTriggered = 0;
-//     button_state = false;
-// 		sendStatus(0);
-//     turnOff();
-//    } else if (motion == HIGH && !sensorTriggered && !button1_pressed) {
-//     sensorTriggered = 1;
-// 		sendStatus(1);
-//     turnOn();
-//   } else if (motion == LOW && !sensorTriggered && button1_pressed && !button_state) {
-//     sensorTriggered = 1;
-//     button_state = true;
-// 		sendStatus(1);
-//     turnOn();
-// 	} else if (motion == HIGH && sensorTriggered) {
-// 		return;
-// 	}
-// }
+void LEDsign() {
+  int button2_pressed = digitalRead(button2);
+  if (button2_pressed == HIGH && button_state == false) {
+    Serial.println("LED sign on...");
+    sendStatus_led_sign(1);
+    button_state = true;
+    delay(1000);
+  }
+  else if (button2_pressed == HIGH && button_state == true) {
+    Serial.println("LED sign off...");
+    sendStatus_led_sign(0);
+    button_state = false;
+    delay(1000);
+  }
+}
 
-void sendStatus(int value){
-  mqttClient.beginMessage(motion_status_to_relay);
+void sendStatus_main_light(int value){
+  mqttClient.beginMessage(motion_status_to_relay_main_light);
+  mqttClient.write(value);
+  mqttClient.endMessage();
+}
+
+void sendStatus_led_sign(int value){
+  mqttClient.beginMessage(motion_status_to_relay_led_sign);
   mqttClient.write(value);
   mqttClient.endMessage();
 }
@@ -137,4 +134,5 @@ void setup() {
 void loop() {
   mqttClient.poll();
   mainLight();
+  LEDsign();
 }
