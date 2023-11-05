@@ -78,15 +78,15 @@ void turnOff() {
 void mainLight(){
   int motion = digitalRead(IR_pin);
   int button1_pressed = digitalRead(button1);
-  if (motion == HIGH && button1_pressed == LOW) { // motion detected no button pressed
-    Serial.println("Motion Detected...");
-    sendStatus_main_light(1);
-    delay(1000);
-  }
-  else if (motion == HIGH && button1_pressed == HIGH) { // motion detected, but button pressed so turn off
+  if (button1_pressed == HIGH) { // motion detected, but button pressed so turn off
     Serial.println("Button detected turn off");
     sendStatus_main_light(0);
     delay(5000);
+  }
+  else if (motion == HIGH && button1_pressed == LOW) { // motion detected no button pressed
+    Serial.println("Motion Detected...");
+    sendStatus_main_light(1);
+    delay(100);
   } 
 }
 
