@@ -3,10 +3,6 @@
 #include <ArduinoMqttClient.h>
 const char broker[] = "eduoracle.ugavel.com";
 int        port     = 1883;
-unsigned long previousMillis = 0; // stores the last time the LED was updated
-const long interval = 60000; // interval at which to turn off the LED (10 minutes)
-
-
 
 #define EAP_ANONYMOUS_IDENTITY "" 
 #define EAP_IDENTITY "tvs60497@uga.edu" 
@@ -36,6 +32,8 @@ int button1 = 5;
 int button2 = 21;
 bool button_state = false;
 bool motion_state = false;
+unsigned long startTime = 0; // the start time of the timer
+const unsigned long interval = 5000; // the interval of the timer in milliseconds
 
 void startWifi() {
   WiFi.disconnect(true); // disconnect from wifi
@@ -81,13 +79,16 @@ void mainLight(){
   if (button1_pressed == HIGH) { // motion detected, but button pressed so turn off
     Serial.println("Button detected turn off");
     sendStatus_main_light(0);
-    delay(5000);
+    delay(30000);
   }
   else if (motion == HIGH && button1_pressed == LOW) { // motion detected no button pressed
     Serial.println("Motion Detected...");
     sendStatus_main_light(1);
-    delay(100);
+    delay(1000);
   } 
+  else if (motion == LOW) {
+    return;
+  }
 }
 
 void LEDsign() {
